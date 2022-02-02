@@ -18,12 +18,6 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'shop__invoice')]
 class Invoice implements OrderEntity, OrderDocument, InvoiceInterface
 {
-	public const
-		TYPE_INVOICE = 'invoice',
-		TYPE_PAYMENT_REQUEST = 'payment-request',
-		TYPE_PROFORMA = 'proforma',
-		TYPE_ORDER = 'order';
-
 	#[ORM\Id]
 	#[ORM\Column(type: 'integer', unique: true, options: ['unsigned' => true])]
 	#[ORM\GeneratedValue]
@@ -35,8 +29,8 @@ class Invoice implements OrderEntity, OrderDocument, InvoiceInterface
 	#[ORM\Column(type: 'string', length: 16)]
 	private string $type;
 
-	#[ORM\Column(type: 'integer', unique: true)]
-	private int $number;
+	#[ORM\Column(type: 'string', unique: true)]
+	private string $number;
 
 	/** @var numeric-string */
 	#[ORM\Column(type: 'decimal', precision: 15, scale: 4, options: ['unsigned' => true])]
@@ -52,7 +46,7 @@ class Invoice implements OrderEntity, OrderDocument, InvoiceInterface
 	private \DateTimeInterface $insertedDate;
 
 
-	public function __construct(Order $order, int $number, PriceInterface $price, string $type = self::TYPE_INVOICE)
+	public function __construct(Order $order, string $number, PriceInterface $price, string $type = self::TYPE_INVOICE)
 	{
 		$this->order = $order;
 		$this->number = $number;
@@ -92,7 +86,9 @@ class Invoice implements OrderEntity, OrderDocument, InvoiceInterface
 
 	public function getNumber(): string
 	{
-		return (string) $this->number;
+		assert($this->number !== '');
+
+		return $this->number;
 	}
 
 

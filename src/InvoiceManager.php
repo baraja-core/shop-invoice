@@ -95,7 +95,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 	{
 		$order = $invoice->getOrder();
 		$locale = $order->getLocale();
-		$invoiceAddress = $order->getInvoiceAddress();
+		$invoiceAddress = $order->getPaymentAddress();
 
 		$supplier = new ParticipantBuilder(
 			'CLEVER MINDS s.r.o.', 'Truhlářská', '1110/4', 'Praha 1 - Nové Město', '110 00'
@@ -105,7 +105,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 		$supplier->setAccountNumber('2900428677/2010');
 
 		$customer = new ParticipantBuilder(
-			$invoiceAddress->getCompanyName() ?: $order->getCustomer()->getName(),
+			$invoiceAddress->getCompanyName() ?? $order->getCustomer()->getName(),
 			$invoiceAddress->getStreet(),
 			null,
 			$invoiceAddress->getCity(),
@@ -124,7 +124,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 				$item->getLabel(),
 				$item->getCount(),
 				(float) $item->getFinalPrice()->getValue(),
-				TaxImpl::fromPercent($item->getProduct()->getVat()),
+				TaxImpl::fromPercent((float) $item->getProduct()->getVat()),
 			);
 		}
 		$delivery = $order->getDelivery();
@@ -132,7 +132,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 			$items[] = new ItemImpl(
 				'Doprava - ' . $delivery->getName($locale),
 				1,
-				(float) $order->getDeliveryPrice(),
+				(float) $order->getDeliveryPrice()->getValue(),
 				TaxImpl::fromPercent(21),
 			);
 		}
@@ -145,7 +145,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 				TaxImpl::fromPercent(21),
 			);
 		}
-		if ($order->getSale() > 0) {
+		if ($order->getSale()->isBiggerThan('0')) {
 			$items[] = new ItemImpl(
 				'Sleva na celou objednávku',
 				1,
