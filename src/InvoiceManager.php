@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Baraja\Shop\Invoice;
 
 
+use Baraja\EcommerceStandard\DTO\InvoiceInterface;
 use Baraja\EcommerceStandard\DTO\OrderInterface;
 use Baraja\EcommerceStandard\Service\InvoiceManagerInterface;
 use Baraja\Shop\Invoice\Entity\Invoice;
@@ -74,7 +75,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 	}
 
 
-	public function getInvoicePath(Invoice $invoice): string
+	public function getInvoicePath(InvoiceInterface $invoice): string
 	{
 		if ($invoice->getPath() === null) {
 			throw new \InvalidArgumentException('File for invoice "' . $invoice->getNumber() . '" does not exist.');
