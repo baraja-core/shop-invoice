@@ -56,7 +56,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 			$invoice->setPrice($order->getPrice());
 		} else {
 			assert($order instanceof Order);
-			$invoice = new Invoice($order, $this->getNextNumber(), $order->getPrice());
+			$invoice = new Invoice($order, (string) $this->getNextNumber(), $order->getPrice());
 			$this->entityManager->persist($invoice);
 			$this->entityManager->flush();
 		}
@@ -87,7 +87,12 @@ final class InvoiceManager implements InvoiceManagerInterface
 
 	public function getByOrder(OrderInterface $order): Invoice
 	{
-		return $this->invoiceRepository->getByOrder($order);
+		$invoices = $this->invoiceRepository->getByOrder($order);
+		if (isset($invoices[0])) {
+			return $invoices[0];
+		}
+
+		throw new \InvalidArgumentException(sprintf('Invoice for order "%s" does not exist.', $order->getNumber()));
 	}
 
 
@@ -98,7 +103,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 		$invoiceAddress = $order->getPaymentAddress();
 
 		$supplier = new ParticipantBuilder(
-			'CLEVER MINDS s.r.o.', 'Truhlářská', '1110/4', 'Praha 1 - Nové Město', '110 00'
+			'CLEVER MINDS s.r.o.', 'Truhlářská', '1110/4', 'Praha 1 - Nové Město', '110 00',
 		);
 		$supplier->setIn('01585100');
 		$supplier->setTin('CZ01585100');
@@ -109,12 +114,12 @@ final class InvoiceManager implements InvoiceManagerInterface
 			$invoiceAddress->getStreet(),
 			null,
 			$invoiceAddress->getCity(),
-			(string) $invoiceAddress->getZip()
+			$invoiceAddress->getZip(),
 		);
-		if ($invoiceAddress->getCin()) {
+		if ($invoiceAddress->getCin() !== null) {
 			$customer->setIn($invoiceAddress->getCin());
 		}
-		if ($invoiceAddress->getTin()) {
+		if ($invoiceAddress->getTin() !== null) {
 			$customer->setTin($invoiceAddress->getTin());
 		}
 
@@ -161,7 +166,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 			new ParticipantImpl($customer),
 			new \DateTimeImmutable($invoice->getInsertedDate()->format('Y-m-d') . ' + 14 days'),
 			$invoice->getInsertedDate(),
-			$items
+			$items,
 		);
 		$data->setDateOfVatRevenueRecognition($invoice->getInsertedDate());
 		$data->setVariableSymbol($order->getNumber());

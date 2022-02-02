@@ -14,7 +14,7 @@ final class ShopInvoiceExtension extends CompilerExtension
 	{
 		$builder = $this->getContainerBuilder();
 		OrmAnnotationsExtension::addAnnotationPathToManager(
-			$builder, 'Baraja\Shop\Invoice\Entity', __DIR__ . '/Entity'
+			$builder, 'Baraja\Shop\Invoice\Entity', __DIR__ . '/Entity',
 		);
 
 		$builder->addDefinition($this->prefix('invoiceManager'))
