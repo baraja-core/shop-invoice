@@ -5,25 +5,29 @@ declare(strict_types=1);
 namespace Baraja\Shop\Invoice\Entity;
 
 
-use Baraja\Doctrine\Identifier\IdentifierUnsigned;
-use Baraja\Shop\Order\Entity\InvoiceInterface;
+use Baraja\EcommerceStandard\DTO\InvoiceInterface;
+use Baraja\EcommerceStandard\DTO\PriceInterface;
 use Baraja\Shop\Order\Entity\Order;
 use Baraja\Shop\Order\Entity\OrderDocument;
+use Baraja\Shop\Price\Price;
 use Baraja\Url\Url;
 use Baraja\VariableGenerator\Order\OrderEntity;
 use Doctrine\ORM\Mapping as ORM;
 
-#[ORM\Entity]
+#[ORM\Entity(repositoryClass: InvoiceRepository::class)]
 #[ORM\Table(name: 'shop__invoice')]
-class Invoice implements OrderEntity, OrderDocument
+class Invoice implements OrderEntity, OrderDocument, InvoiceInterface
 {
-	use IdentifierUnsigned;
-
 	public const
 		TYPE_INVOICE = 'invoice',
 		TYPE_PAYMENT_REQUEST = 'payment-request',
 		TYPE_PROFORMA = 'proforma',
 		TYPE_ORDER = 'order';
+
+	#[ORM\Id]
+	#[ORM\Column(type: 'integer', unique: true, options: ['unsigned' => true])]
+	#[ORM\GeneratedValue]
+	protected int $id;
 
 	#[ORM\ManyToOne(targetEntity: Order::class, inversedBy: 'invoices')]
 	private Order $order;
@@ -34,8 +38,9 @@ class Invoice implements OrderEntity, OrderDocument
 	#[ORM\Column(type: 'integer', unique: true)]
 	private int $number;
 
-	#[ORM\Column(type: 'float')]
-	private float $price;
+	/** @var numeric-string */
+	#[ORM\Column(type: 'decimal', precision: 15, scale: 4, options: ['unsigned' => true])]
+	private string $price;
 
 	#[ORM\Column(type: 'boolean')]
 	private bool $paid = false;
@@ -43,30 +48,39 @@ class Invoice implements OrderEntity, OrderDocument
 	#[ORM\Column(type: 'string', length: 64, nullable: true)]
 	private ?string $path = null;
 
-	#[ORM\Column(type: 'datetime')]
+	#[ORM\Column(type: 'datetime_immutable')]
 	private \DateTimeInterface $insertedDate;
 
 
-	public function __construct(Order $order, int $number, float $price, string $type = self::TYPE_INVOICE)
+	public function __construct(Order $order, int $number, PriceInterface $price, string $type = self::TYPE_INVOICE)
 	{
 		$this->order = $order;
 		$this->number = $number;
-		$this->price = $price;
+		$this->price = $price->getValue();
 		$this->type = $type;
 		$this->insertedDate = new \DateTimeImmutable;
 	}
 
 
+	public function getId(): int
+	{
+		return $this->id;
+	}
+
+
 	public function getDownloadLink(): string
 	{
-		return Url::get()->getBaseUrl() . '/' . $this->getPath();
+		return sprintf('%s/%s', Url::get()->getBaseUrl(), $this->getPath());
 	}
 
 
 	public function getLabel(): string
 	{
-		return 'Invoice ' . $this->getNumber()
-			. ($this->getType() !== '' ? ' (' . $this->getType() . ')' : '');
+		return sprintf(
+			'Invoice %s%s',
+			$this->getNumber(),
+			$this->getType() !== '' ? ' (' . $this->getType() . ')' : '',
+		);
 	}
 
 
@@ -82,15 +96,18 @@ class Invoice implements OrderEntity, OrderDocument
 	}
 
 
-	public function getPrice(): float
+	public function getPrice(): PriceInterface
 	{
-		return $this->price;
+		return new Price($this->price, $this->order->getCurrency());
 	}
 
 
-	public function setPrice(float $price): void
+	public function setPrice(PriceInterface $price): void
 	{
-		$this->price = $price;
+		if ($price->getCurrency()->getCode() !== $this->order->getCurrencyCode()) {
+			throw new \InvalidArgumentException('Given price can not use incompatible currency.');
+		}
+		$this->price = $price->getValue();
 	}
 
 
@@ -133,5 +150,29 @@ class Invoice implements OrderEntity, OrderDocument
 	public function getInsertedDate(): \DateTimeInterface
 	{
 		return $this->insertedDate;
+	}
+
+
+	public function getTags(): array
+	{
+		return ['invoice'];
+	}
+
+
+	public function addTag(string $tag): void
+	{
+		throw new \LogicException('Not implemented: Can not set tag to invoice.');
+	}
+
+
+	public function hasTag(string $tag): bool
+	{
+		return $tag === 'invoice';
+	}
+
+
+	public function removeTag(string $tag): void
+	{
+		// Silence is golden.
 	}
 }

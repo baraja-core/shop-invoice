@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace Baraja\Shop\Invoice;
 
 
-use Baraja\Doctrine\EntityManager;
+use Baraja\EcommerceStandard\DTO\OrderInterface;
+use Baraja\EcommerceStandard\Service\InvoiceManagerInterface;
 use Baraja\Shop\Invoice\Entity\Invoice;
+use Baraja\Shop\Invoice\Entity\InvoiceRepository;
 use Baraja\Shop\Order\Entity\Order;
-use Baraja\Shop\Order\InvoiceManagerInterface;
 use Baraja\VariableGenerator\Order\DefaultOrderVariableLoader;
 use Baraja\VariableGenerator\VariableGenerator;
-use CleverMinds\EmailerAccessor;
-use Nette\Utils\DateTime;
+use Doctrine\ORM\EntityManagerInterface;
 use Nette\Utils\FileSystem;
 use Nette\Utils\Random;
 use OndrejBrejla\Eciovni\DataImpl;
@@ -24,33 +24,37 @@ use OndrejBrejla\Eciovni\TaxImpl;
 
 final class InvoiceManager implements InvoiceManagerInterface
 {
+	private InvoiceRepository $invoiceRepository;
+
+
 	public function __construct(
 		private string $wwwDir,
-		private EntityManager $entityManager,
-		private EmailerAccessor $emailer
+		private EntityManagerInterface $entityManager,
 	) {
 		if (is_dir($wwwDir) === false) {
-			throw new \RuntimeException('Parameter "wwwDir" with path "' . $wwwDir . '" does not exist.');
+			throw new \RuntimeException(sprintf('Parameter "wwwDir" with path "%s" does not exist.', $this->wwwDir));
 		}
+		$invoiceRepository = $this->entityManager->getRepository(Invoice::class);
+		assert($invoiceRepository instanceof InvoiceRepository);
+		$this->invoiceRepository = $invoiceRepository;
 	}
 
 
-	public function isInvoice(Order $order): bool
+	public function isInvoice(OrderInterface $order): bool
 	{
-		return $this->getOrderInvoices($order) !== [];
+		return $this->invoiceRepository->getByOrder($order) !== [];
 	}
 
 
-	public function createInvoice(Order $order): Invoice
+	public function createInvoice(OrderInterface $order): Invoice
 	{
-		$regenerated = false;
-		$invoiceItem = $this->getOrderInvoices($order);
+		$invoiceItem = $this->invoiceRepository->getByOrder($order);
 		if ($invoiceItem !== []) {
 			/** @var Invoice $invoice */
 			$invoice = $invoiceItem;
 			$invoice->setPrice($order->getPrice());
-			$regenerated = true;
 		} else {
+			assert($order instanceof Order);
 			$invoice = new Invoice($order, $this->getNextNumber(), $order->getPrice());
 			$this->entityManager->persist($invoice);
 			$this->entityManager->flush();
@@ -64,7 +68,6 @@ final class InvoiceManager implements InvoiceManagerInterface
 		FileSystem::createDir(dirname($absolutePath));
 		$invoiceGenerator->exportToPdf($absolutePath, 'F');
 
-		$this->emailer->sendOrderInvoice($invoice, $absolutePath, $regenerated);
 		$this->entityManager->flush();
 
 		return $invoice;
@@ -78,6 +81,12 @@ final class InvoiceManager implements InvoiceManagerInterface
 		}
 
 		return $this->wwwDir . '/' . $invoice->getPath();
+	}
+
+
+	public function getByOrder(OrderInterface $order): Invoice
+	{
+		return $this->invoiceRepository->getByOrder($order);
 	}
 
 
@@ -113,27 +122,33 @@ final class InvoiceManager implements InvoiceManagerInterface
 			$items[] = new ItemImpl(
 				$item->getLabel(),
 				$item->getCount(),
-				$item->getFinalPrice(),
+				(float) $item->getFinalPrice()->getValue(),
 				TaxImpl::fromPercent($item->getProduct()->getVat()),
 			);
 		}
-		$items[] = new ItemImpl(
-			'Doprava - ' . $order->getDelivery()->getName($locale),
-			1,
-			$order->getDeliveryPrice(),
-			TaxImpl::fromPercent(21),
-		);
-		$items[] = new ItemImpl(
-			'Platba - ' . $order->getPayment()->getName(),
-			1,
-			$order->getPayment()->getPrice(),
-			TaxImpl::fromPercent(21),
-		);
+		$delivery = $order->getDelivery();
+		if ($delivery !== null) {
+			$items[] = new ItemImpl(
+				'Doprava - ' . $delivery->getName($locale),
+				1,
+				(float) $order->getDeliveryPrice(),
+				TaxImpl::fromPercent(21),
+			);
+		}
+		$payment = $order->getPayment();
+		if ($payment !== null) {
+			$items[] = new ItemImpl(
+				'Platba - ' . $payment->getName(),
+				1,
+				(float) $order->getPaymentPrice()->getValue(),
+				TaxImpl::fromPercent(21),
+			);
+		}
 		if ($order->getSale() > 0) {
 			$items[] = new ItemImpl(
 				'Sleva na celou objednávku',
 				1,
-				$order->getSale() * -1,
+				$order->getSale()->getValue() * -1,
 				TaxImpl::fromPercent(21),
 			);
 		}
@@ -143,7 +158,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 			'Faktura',
 			new ParticipantImpl($supplier),
 			new ParticipantImpl($customer),
-			DateTime::from($invoice->getInsertedDate()->format('Y-m-d') . ' + 14 days'),
+			new \DateTimeImmutable($invoice->getInsertedDate()->format('Y-m-d') . ' + 14 days'),
 			$invoice->getInsertedDate(),
 			$items
 		);
@@ -157,20 +172,6 @@ final class InvoiceManager implements InvoiceManagerInterface
 		$invoiceGenerator->setContactSizeRatio(45);
 
 		return $invoiceGenerator;
-	}
-
-
-	/**
-	 * @return Invoice[]
-	 */
-	private function getOrderInvoices(Order $order): array
-	{
-		return $this->entityManager->getRepository(Invoice::class)
-			->createQueryBuilder('i')
-			->where('i.order = :orderId')
-			->setParameter('orderId', $order->getId())
-			->getQuery()
-			->getResult();
 	}
 
 

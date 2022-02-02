@@ -1,7 +1,7 @@
 {
-	"name": "baraja-core/template",
-	"description": "This is a template package.",
-	"homepage": "https://github.com/baraja-core/template",
+	"name": "baraja-core/shop-invoice",
+	"description": "Simple invoice system.",
+	"homepage": "https://github.com/baraja-core/shop-invoice",
 	"authors": [
 		{
 			"name": "Jan Barášek",
@@ -9,16 +9,18 @@
 		}
 	],
 	"require": {
-		"php": "^8.0"
+		"php": "^8.0",
+		"baraja-core/ecommerce-standard": "^0.0",
+		"baraja-core/shop-order": "^0.0",
+		"ondrejbrejla/eciovni": "^3.0"
 	},
 	"require-dev": {
-		"tracy/tracy": "^2.8",
-		"phpstan/phpstan": "^0.12.94",
-		"phpstan/extension-installer": "^1.0",
-		"phpstan/phpstan-nette": "^0.12.14",
-		"phpstan/phpstan-deprecation-rules": "^0.12.6",
-		"phpstan/phpstan-strict-rules": "^0.12.10",
-		"spaze/phpstan-disallowed-calls": "^1.1",
+		"phpstan/phpstan": "^1.0",
+		"phpstan/extension-installer": "^1.1",
+		"phpstan/phpstan-nette": "^1.0",
+		"phpstan/phpstan-deprecation-rules": "^1.0",
+		"phpstan/phpstan-strict-rules": "^1.0",
+		"spaze/phpstan-disallowed-calls": "^2.0",
 		"roave/security-advisories": "dev-master"
 	},
 	"autoload": {
@@ -28,7 +30,7 @@
 	},
 	"scripts": {
 		"phpstan": [
-			"vendor/bin/phpstan analyse src -c phpstan.neon --level 8 --no-progress"
+			"vendor/bin/phpstan analyse src -c phpstan.neon --level 9 --no-progress"
 		]
 	},
 	"minimum-stability": "stable"
