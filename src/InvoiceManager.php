@@ -52,7 +52,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 		$invoiceItem = $this->invoiceRepository->getByOrder($order);
 		if ($invoiceItem !== []) {
 			/** @var Invoice $invoice */
-			$invoice = $invoiceItem;
+			$invoice = $invoiceItem[0];
 			$invoice->setPrice($order->getPrice());
 		} else {
 			assert($order instanceof Order);
