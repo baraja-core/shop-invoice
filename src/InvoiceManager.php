@@ -57,8 +57,6 @@ final class InvoiceManager implements InvoiceManagerInterface
 		} else {
 			assert($order instanceof Order);
 			$invoice = new Invoice($order, (string) $this->getNextNumber(), $order->getPrice());
-			$this->entityManager->persist($invoice);
-			$this->entityManager->flush();
 		}
 
 		$relativePath = 'invoice/' . date('Y-m') . '/' . $invoice->getNumber() . '_' . Random::generate(6) . '.pdf';
@@ -69,6 +67,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 		FileSystem::createDir(dirname($absolutePath));
 		$invoiceGenerator->exportToPdf($absolutePath, 'F');
 
+		$this->entityManager->persist($invoice);
 		$this->entityManager->flush();
 
 		return $invoice;
@@ -129,7 +128,7 @@ final class InvoiceManager implements InvoiceManagerInterface
 				$item->getLabel(),
 				$item->getCount(),
 				(float) $item->getFinalPrice()->getValue(),
-				TaxImpl::fromPercent((float) $item->getProduct()->getVat()),
+				TaxImpl::fromPercent((float) $item->getVat()->getValue()),
 			);
 		}
 		$delivery = $order->getDelivery();
