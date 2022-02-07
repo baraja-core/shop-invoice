@@ -64,7 +64,11 @@ class Invoice implements OrderEntity, OrderDocument, InvoiceInterface
 
 	public function getDownloadLink(): string
 	{
-		return sprintf('%s/%s', Url::get()->getBaseUrl(), $this->getPath());
+		$path = $this->getPath();
+		if ($path === null || $path === '') {
+			return '';
+		}
+		return sprintf('%s/%s', Url::get()->getBaseUrl(), $path);
 	}
 
 
