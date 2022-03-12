@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace Baraja\Shop\Invoice;
 
 
-use Baraja\Doctrine\EntityManager;
+use Baraja\EcommerceStandard\DTO\InvoiceInterface;
+use Baraja\EcommerceStandard\DTO\OrderInterface;
+use Baraja\EcommerceStandard\Service\InvoiceManagerInterface;
 use Baraja\Shop\Invoice\Entity\Invoice;
+use Baraja\Shop\Invoice\Entity\InvoiceRepository;
 use Baraja\Shop\Order\Entity\Order;
-use Baraja\Shop\Order\InvoiceManagerInterface;
 use Baraja\VariableGenerator\Order\DefaultOrderVariableLoader;
 use Baraja\VariableGenerator\VariableGenerator;
-use CleverMinds\EmailerAccessor;
-use Nette\Utils\DateTime;
+use Doctrine\ORM\EntityManagerInterface;
 use Nette\Utils\FileSystem;
 use Nette\Utils\Random;
 use OndrejBrejla\Eciovni\DataImpl;
@@ -24,36 +25,38 @@ use OndrejBrejla\Eciovni\TaxImpl;
 
 final class InvoiceManager implements InvoiceManagerInterface
 {
+	private InvoiceRepository $invoiceRepository;
+
+
 	public function __construct(
 		private string $wwwDir,
-		private EntityManager $entityManager,
-		private EmailerAccessor $emailer
+		private EntityManagerInterface $entityManager,
 	) {
 		if (is_dir($wwwDir) === false) {
-			throw new \RuntimeException('Parameter "wwwDir" with path "' . $wwwDir . '" does not exist.');
+			throw new \RuntimeException(sprintf('Parameter "wwwDir" with path "%s" does not exist.', $this->wwwDir));
 		}
+		$invoiceRepository = $this->entityManager->getRepository(Invoice::class);
+		assert($invoiceRepository instanceof InvoiceRepository);
+		$this->invoiceRepository = $invoiceRepository;
 	}
 
 
-	public function isInvoice(Order $order): bool
+	public function isInvoice(OrderInterface $order): bool
 	{
-		return $this->getOrderInvoices($order) !== [];
+		return $this->invoiceRepository->getByOrder($order) !== [];
 	}
 
 
-	public function createInvoice(Order $order): Invoice
+	public function createInvoice(OrderInterface $order): Invoice
 	{
-		$regenerated = false;
-		$invoiceItem = $this->getOrderInvoices($order);
+		$invoiceItem = $this->invoiceRepository->getByOrder($order);
 		if ($invoiceItem !== []) {
 			/** @var Invoice $invoice */
-			$invoice = $invoiceItem;
+			$invoice = $invoiceItem[0];
 			$invoice->setPrice($order->getPrice());
-			$regenerated = true;
 		} else {
-			$invoice = new Invoice($order, $this->getNextNumber(), $order->getPrice());
-			$this->entityManager->persist($invoice);
-			$this->entityManager->flush();
+			assert($order instanceof Order);
+			$invoice = new Invoice($order, (string) $this->getNextNumber(), $order->getPrice());
 		}
 
 		$relativePath = 'invoice/' . date('Y-m') . '/' . $invoice->getNumber() . '_' . Random::generate(6) . '.pdf';
@@ -64,14 +67,14 @@ final class InvoiceManager implements InvoiceManagerInterface
 		FileSystem::createDir(dirname($absolutePath));
 		$invoiceGenerator->exportToPdf($absolutePath, 'F');
 
-		$this->emailer->sendOrderInvoice($invoice, $absolutePath, $regenerated);
+		$this->entityManager->persist($invoice);
 		$this->entityManager->flush();
 
 		return $invoice;
 	}
 
 
-	public function getInvoicePath(Invoice $invoice): string
+	public function getInvoicePath(InvoiceInterface $invoice): string
 	{
 		if ($invoice->getPath() === null) {
 			throw new \InvalidArgumentException('File for invoice "' . $invoice->getNumber() . '" does not exist.');
@@ -81,30 +84,41 @@ final class InvoiceManager implements InvoiceManagerInterface
 	}
 
 
+	public function getByOrder(OrderInterface $order): Invoice
+	{
+		$invoices = $this->invoiceRepository->getByOrder($order);
+		if (isset($invoices[0])) {
+			return $invoices[0];
+		}
+
+		throw new \InvalidArgumentException(sprintf('Invoice for order "%s" does not exist.', $order->getNumber()));
+	}
+
+
 	public function getInvoiceGenerator(Invoice $invoice): Eciovni
 	{
 		$order = $invoice->getOrder();
 		$locale = $order->getLocale();
-		$invoiceAddress = $order->getInvoiceAddress();
+		$invoiceAddress = $order->getPaymentAddress();
 
 		$supplier = new ParticipantBuilder(
-			'CLEVER MINDS s.r.o.', 'Truhlářská', '1110/4', 'Praha 1 - Nové Město', '110 00'
+			'CLEVER MINDS s.r.o.', 'Truhlářská', '1110/4', 'Praha 1 - Nové Město', '110 00',
 		);
 		$supplier->setIn('01585100');
 		$supplier->setTin('CZ01585100');
 		$supplier->setAccountNumber('2900428677/2010');
 
 		$customer = new ParticipantBuilder(
-			$invoiceAddress->getCompanyName() ?: $order->getCustomer()->getName(),
+			$invoiceAddress->getCompanyName() ?? $order->getCustomer()->getName(),
 			$invoiceAddress->getStreet(),
 			null,
 			$invoiceAddress->getCity(),
-			(string) $invoiceAddress->getZip()
+			$invoiceAddress->getZip(),
 		);
-		if ($invoiceAddress->getCin()) {
+		if ($invoiceAddress->getCin() !== null) {
 			$customer->setIn($invoiceAddress->getCin());
 		}
-		if ($invoiceAddress->getTin()) {
+		if ($invoiceAddress->getTin() !== null) {
 			$customer->setTin($invoiceAddress->getTin());
 		}
 
@@ -113,27 +127,33 @@ final class InvoiceManager implements InvoiceManagerInterface
 			$items[] = new ItemImpl(
 				$item->getLabel(),
 				$item->getCount(),
-				$item->getFinalPrice(),
-				TaxImpl::fromPercent($item->getProduct()->getVat()),
+				(float) $item->getFinalPrice()->getValue(),
+				TaxImpl::fromPercent((float) $item->getVat()->getValue()),
 			);
 		}
-		$items[] = new ItemImpl(
-			'Doprava - ' . $order->getDelivery()->getName($locale),
-			1,
-			$order->getDeliveryPrice(),
-			TaxImpl::fromPercent(21),
-		);
-		$items[] = new ItemImpl(
-			'Platba - ' . $order->getPayment()->getName(),
-			1,
-			$order->getPayment()->getPrice(),
-			TaxImpl::fromPercent(21),
-		);
-		if ($order->getSale() > 0) {
+		$delivery = $order->getDelivery();
+		if ($delivery !== null) {
+			$items[] = new ItemImpl(
+				'Doprava - ' . $delivery->getName($locale),
+				1,
+				(float) $order->getDeliveryPrice()->getValue(),
+				TaxImpl::fromPercent(21),
+			);
+		}
+		$payment = $order->getPayment();
+		if ($payment !== null) {
+			$items[] = new ItemImpl(
+				'Platba - ' . $payment->getName(),
+				1,
+				(float) $order->getPaymentPrice()->getValue(),
+				TaxImpl::fromPercent(21),
+			);
+		}
+		if ($order->getSale()->isBiggerThan('0')) {
 			$items[] = new ItemImpl(
 				'Sleva na celou objednávku',
 				1,
-				$order->getSale() * -1,
+				$order->getSale()->getValue() * -1,
 				TaxImpl::fromPercent(21),
 			);
 		}
@@ -143,9 +163,9 @@ final class InvoiceManager implements InvoiceManagerInterface
 			'Faktura',
 			new ParticipantImpl($supplier),
 			new ParticipantImpl($customer),
-			DateTime::from($invoice->getInsertedDate()->format('Y-m-d') . ' + 14 days'),
+			new \DateTimeImmutable($invoice->getInsertedDate()->format('Y-m-d') . ' + 14 days'),
 			$invoice->getInsertedDate(),
-			$items
+			$items,
 		);
 		$data->setDateOfVatRevenueRecognition($invoice->getInsertedDate());
 		$data->setVariableSymbol($order->getNumber());
@@ -157,20 +177,6 @@ final class InvoiceManager implements InvoiceManagerInterface
 		$invoiceGenerator->setContactSizeRatio(45);
 
 		return $invoiceGenerator;
-	}
-
-
-	/**
-	 * @return Invoice[]
-	 */
-	private function getOrderInvoices(Order $order): array
-	{
-		return $this->entityManager->getRepository(Invoice::class)
-			->createQueryBuilder('i')
-			->where('i.order = :orderId')
-			->setParameter('orderId', $order->getId())
-			->getQuery()
-			->getResult();
 	}
 
 
